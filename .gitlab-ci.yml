@@ -1,0 +1,172 @@
+stages:
+  - build
+  - test-with-launchable
+  - test-without-launchable
+  - report
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version"
+  # Launchable configuration
+  LAUNCHABLE_TOKEN: $LAUNCHABLE_TOKEN  # Set this in GitLab CI/CD variables
+  LAUNCHABLE_ORGANIZATION: "your-org"   # Replace with your Launchable org
+  LAUNCHABLE_WORKSPACE: "e2e-demo"      # Replace with your workspace
+
+cache:
+  paths:
+    - .m2/repository/
+
+# Build stage
+build:
+  stage: build
+  image: maven:3.8.6-openjdk-11
+  script:
+    - mvn $MAVEN_CLI_OPTS clean compile test-compile
+  artifacts:
+    paths:
+      - target/
+    expire_in: 1 hour
+
+# Install Launchable CLI
+.install_launchable: &install_launchable
+  - curl -L https://github.com/launchableinc/cli/releases/latest/download/launchable_linux_amd64.tar.gz | tar xz
+  - sudo mv launchable /usr/local/bin/
+  - launchable verify
+
+# Test with Launchable optimization
+test-with-launchable:
+  stage: test-with-launchable
+  image: maven:3.8.6-openjdk-11
+  services:
+    - selenium/standalone-chrome:latest
+  variables:
+    SELENIUM_GRID_URL: "http://selenium-standalone-chrome:4444/wd/hub"
+  before_script:
+    - apt-get update && apt-get install -y curl sudo
+    - *install_launchable
+    # Record build commit for Launchable
+    - launchable record build --name $CI_PIPELINE_ID --source .
+  script:
+    # Get subset of tests to run from Launchable
+    - launchable subset --target 60% --build $CI_PIPELINE_ID maven > launchable_subset.txt
+    - echo "=== Launchable selected tests ==="
+    - cat launchable_subset.txt
+    - echo "================================"
+    
+    # Run only the subset of tests recommended by Launchable
+    - mvn $MAVEN_CLI_OPTS test -Dbrowser=chrome -Dheadless=true $(cat launchable_subset.txt)
+    
+    # Record test results to Launchable
+    - launchable record tests --build $CI_PIPELINE_ID maven target/surefire-reports/
+  after_script:
+    # Always record session regardless of test outcome
+    - launchable record session --build $CI_PIPELINE_ID --flavor "launchable-optimized"
+  artifacts:
+    when: always
+    paths:
+      - target/surefire-reports/
+      - launchable_subset.txt
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+  allow_failure: false
+
+# Test without Launchable (full suite for comparison)
+test-without-launchable:
+  stage: test-without-launchable
+  image: maven:3.8.6-openjdk-11
+  services:
+    - selenium/standalone-chrome:latest
+  variables:
+    SELENIUM_GRID_URL: "http://selenium-standalone-chrome:4444/wd/hub"
+  script:
+    - echo "=== Running FULL test suite (without Launchable optimization) ==="
+    - mvn $MAVEN_CLI_OPTS test -Dbrowser=chrome -Dheadless=true
+  artifacts:
+    when: always
+    paths:
+      - target/surefire-reports/
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+  allow_failure: true
+  when: manual  # Only run manually for comparison
+
+# Smoke tests only (for quick feedback)
+smoke-tests:
+  stage: test-with-launchable
+  image: maven:3.8.6-openjdk-11
+  services:
+    - selenium/standalone-chrome:latest
+  script:
+    - echo "=== Running SMOKE tests only ==="
+    - mvn $MAVEN_CLI_OPTS test -Dbrowser=chrome -Dheadless=true -Dgroups=smoke
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+  when: manual
+
+# Critical tests only (for deployment validation)
+critical-tests:
+  stage: test-with-launchable
+  image: maven:3.8.6-openjdk-11
+  services:
+    - selenium/standalone-chrome:latest
+  script:
+    - echo "=== Running CRITICAL tests only ==="
+    - mvn $MAVEN_CLI_OPTS test -Dbrowser=chrome -Dheadless=true -Dgroups=critical
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+  when: manual
+
+# Generate comparison report
+generate-report:
+  stage: report
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - echo "=== Launchable Test Execution Report ===" > comparison_report.txt
+    - echo "Pipeline ID: $CI_PIPELINE_ID" >> comparison_report.txt
+    - echo "Commit: $CI_COMMIT_SHA" >> comparison_report.txt
+    - echo "Branch: $CI_COMMIT_REF_NAME" >> comparison_report.txt
+    - echo "" >> comparison_report.txt
+    
+    # Count tests in subset if file exists
+    - |
+      if [ -f launchable_subset.txt ]; then
+        SUBSET_COUNT=$(wc -l < launchable_subset.txt || echo "0")
+        echo "Tests selected by Launchable: $SUBSET_COUNT" >> comparison_report.txt
+      else
+        echo "Launchable subset file not found" >> comparison_report.txt
+      fi
+    
+    # Analyze test results
+    - |
+      if [ -d target/surefire-reports ]; then
+        TOTAL_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -o 'tests="[0-9]*"' {} \; | cut -d'"' -f2 | awk '{sum+=$1} END {print sum}' || echo "0")
+        FAILED_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -o 'failures="[0-9]*"' {} \; | cut -d'"' -f2 | awk '{sum+=$1} END {print sum}' || echo "0")
+        echo "Total tests executed: $TOTAL_TESTS" >> comparison_report.txt
+        echo "Failed tests: $FAILED_TESTS" >> comparison_report.txt
+      fi
+    
+    - echo "" >> comparison_report.txt
+    - echo "=== Benefits of using Launchable ===" >> comparison_report.txt
+    - echo "- Reduced test execution time by running only relevant tests" >> comparison_report.txt
+    - echo "- Maintained quality with intelligent test selection" >> comparison_report.txt
+    - echo "- Faster feedback loop for developers" >> comparison_report.txt
+    - echo "- Cost optimization in CI/CD pipeline" >> comparison_report.txt
+    
+    - cat comparison_report.txt
+  artifacts:
+    paths:
+      - comparison_report.txt
+    expire_in: 1 week
+  dependencies:
+    - test-with-launchable
+  when: always

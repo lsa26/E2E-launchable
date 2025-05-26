@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite name="LaunchableE2ETestSuite" parallel="tests" thread-count="3">
+    
+    <!-- Smoke Tests - Critical functionality -->
+    <test name="SmokeTests">
+        <parameter name="browser" value="chrome"/>
+        <parameter name="headless" value="true"/>
+        <groups>
+            <run>
+                <include name="smoke"/>
+            </run>
+        </groups>
+        <classes>
+            <class name="com.launchable.demo.tests.TodoMVCTests"/>
+            <class name="com.launchable.demo.tests.SauceDemoTests"/>
+            <class name="com.launchable.demo.tests.HerokuAppTests"/>
+        </classes>
+    </test>
+    
+    <!-- Critical Tests - Must pass for deployment -->
+    <test name="CriticalTests">
+        <parameter name="browser" value="chrome"/>
+        <parameter name="headless" value="true"/>
+        <groups>
+            <run>
+                <include name="critical"/>
+            </run>
+        </groups>
+        <classes>
+            <class name="com.launchable.demo.tests.TodoMVCTests"/>
+            <class name="com.launchable.demo.tests.SauceDemoTests"/>
+        </classes>
+    </test>
+    
+    <!-- Functional Tests - Full feature validation -->
+    <test name="FunctionalTests">
+        <parameter name="browser" value="chrome"/>
+        <parameter name="headless" value="true"/>
+        <groups>
+            <run>
+                <include name="functional"/>
+            </run>
+        </groups>
+        <classes>
+            <class name="com.launchable.demo.tests.TodoMVCTests"/>
+            <class name="com.launchable.demo.tests.SauceDemoTests"/>
+            <class name="com.launchable.demo.tests.HerokuAppTests"/>
+        </classes>
+    </test>
+    
+    <!-- Edge Case Tests - Boundary conditions -->
+    <test name="EdgeCaseTests">
+        <parameter name="browser" value="chrome"/>
+        <parameter name="headless" value="true"/>
+        <groups>
+            <run>
+                <include name="edge-case"/>
+            </run>
+        </groups>
+        <classes>
+            <class name="com.launchable.demo.tests.TodoMVCTests"/>
+            <class name="com.launchable.demo.tests.HerokuAppTests"/>
+        </classes>
+    </test>
+    
+    <!-- Security Tests -->
+    <test name="SecurityTests">
+        <parameter name="browser" value="chrome"/>
+        <parameter name="headless" value="true"/>
+        <groups>
+            <run>
+                <include name="security"/>
+            </run>
+        </groups>
+        <classes>
+            <class name="com.launchable.demo.tests.SauceDemoTests"/>
+            <class name="com.launchable.demo.tests.HerokuAppTests"/>
+        </classes>
+    </test>
+    
+</suite>

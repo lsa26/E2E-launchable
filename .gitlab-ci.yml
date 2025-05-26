@@ -7,10 +7,9 @@ stages:
 variables:
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
   MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version"
-  # Launchable configuration
-  LAUNCHABLE_TOKEN: $LAUNCHABLE_TOKEN  # Set this in GitLab CI/CD variables
-  LAUNCHABLE_ORGANIZATION: "your-org"   # Replace with your Launchable org
-  LAUNCHABLE_WORKSPACE: "e2e-demo"      # Replace with your workspace
+  LAUNCHABLE_TOKEN: $LAUNCHABLE_TOKEN
+  LAUNCHABLE_ORGANIZATION: "your-org"
+  LAUNCHABLE_WORKSPACE: "e2e-demo"
 
 cache:
   paths:
@@ -27,7 +26,7 @@ build:
       - target/
     expire_in: 1 hour
 
-# Install Launchable CLI
+# Install Launchable CLI snippet
 .install_launchable: &install_launchable
   - curl -L https://github.com/launchableinc/cli/releases/latest/download/launchable_linux_amd64.tar.gz | tar xz
   - sudo mv launchable /usr/local/bin/
@@ -44,22 +43,15 @@ test-with-launchable:
   before_script:
     - apt-get update && apt-get install -y curl sudo
     - *install_launchable
-    # Record build commit for Launchable
     - launchable record build --name $CI_PIPELINE_ID --source .
   script:
-    # Get subset of tests to run from Launchable
     - launchable subset --target 60% --build $CI_PIPELINE_ID maven > launchable_subset.txt
     - echo "=== Launchable selected tests ==="
     - cat launchable_subset.txt
     - echo "================================"
-    
-    # Run only the subset of tests recommended by Launchable
     - mvn $MAVEN_CLI_OPTS test -Dbrowser=chrome -Dheadless=true $(cat launchable_subset.txt)
-    
-    # Record test results to Launchable
     - launchable record tests --build $CI_PIPELINE_ID maven target/surefire-reports/
   after_script:
-    # Always record session regardless of test outcome
     - launchable record session --build $CI_PIPELINE_ID --flavor "launchable-optimized"
   artifacts:
     when: always
@@ -71,7 +63,7 @@ test-with-launchable:
         - target/surefire-reports/TEST-*.xml
   allow_failure: false
 
-# Test without Launchable (full suite for comparison)
+# Full test suite (manual)
 test-without-launchable:
   stage: test-without-launchable
   image: maven:3.8.6-openjdk-11
@@ -90,9 +82,9 @@ test-without-launchable:
       junit:
         - target/surefire-reports/TEST-*.xml
   allow_failure: true
-  when: manual  # Only run manually for comparison
+  when: manual
 
-# Smoke tests only (for quick feedback)
+# Smoke tests (manual)
 smoke-tests:
   stage: test-with-launchable
   image: maven:3.8.6-openjdk-11
@@ -108,7 +100,7 @@ smoke-tests:
         - target/surefire-reports/TEST-*.xml
   when: manual
 
-# Critical tests only (for deployment validation)
+# Critical tests (manual)
 critical-tests:
   stage: test-with-launchable
   image: maven:3.8.6-openjdk-11
@@ -136,32 +128,14 @@ generate-report:
     - echo "Commit: $CI_COMMIT_SHA" >> comparison_report.txt
     - echo "Branch: $CI_COMMIT_REF_NAME" >> comparison_report.txt
     - echo "" >> comparison_report.txt
-    
-    # Count tests in subset if file exists
-    - |
-      if [ -f launchable_subset.txt ]; then
-        SUBSET_COUNT=$(wc -l < launchable_subset.txt || echo "0")
-        echo "Tests selected by Launchable: $SUBSET_COUNT" >> comparison_report.txt
-      else
-        echo "Launchable subset file not found" >> comparison_report.txt
-      fi
-    
-    # Analyze test results
-    - |
-      if [ -d target/surefire-reports ]; then
-        TOTAL_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -o 'tests="[0-9]*"' {} \; | cut -d'"' -f2 | awk '{sum+=$1} END {print sum}' || echo "0")
-        FAILED_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -o 'failures="[0-9]*"' {} \; | cut -d'"' -f2 | awk '{sum+=$1} END {print sum}' || echo "0")
-        echo "Total tests executed: $TOTAL_TESTS" >> comparison_report.txt
-        echo "Failed tests: $FAILED_TESTS" >> comparison_report.txt
-      fi
-    
+    - if [ -f launchable_subset.txt ]; then SUBSET_COUNT=$(wc -l < launchable_subset.txt || echo "0"); echo "Tests selected by Launchable: $SUBSET_COUNT" >> comparison_report.txt; else echo "Launchable subset file not found" >> comparison_report.txt; fi
+    - if [ -d target/surefire-reports ]; then TOTAL_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -o 'tests="[0-9]*"' {} \; | cut -d'"' -f2 | awk '{sum+=$1} END {print sum}' || echo "0"); FAILED_TESTS=$(find target/surefire-reports -name "TEST-*.xml" -exec grep -o 'failures="[0-9]*"' {} \; | cut -d'"' -f2 | awk '{sum+=$1} END {print sum}' || echo "0"); echo "Total tests executed: $TOTAL_TESTS" >> comparison_report.txt; echo "Failed tests: $FAILED_TESTS" >> comparison_report.txt; fi
     - echo "" >> comparison_report.txt
     - echo "=== Benefits of using Launchable ===" >> comparison_report.txt
     - echo "- Reduced test execution time by running only relevant tests" >> comparison_report.txt
     - echo "- Maintained quality with intelligent test selection" >> comparison_report.txt
     - echo "- Faster feedback loop for developers" >> comparison_report.txt
     - echo "- Cost optimization in CI/CD pipeline" >> comparison_report.txt
-    
     - cat comparison_report.txt
   artifacts:
     paths:
